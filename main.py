@@ -2,26 +2,36 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import os
+from datetime import datetime
 
-# This looks at the "Key" you just made in Railway
+# CONFIG
 PRODUCT_URL = "https://quack.food/purchase"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL") 
-CHECK_INTERVAL = 60
+CHECK_INTERVAL = 30  # Increased to 30 seconds for faster alerts
 
 def check_stock():
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
+        # We use a timeout to ensure the bot doesn't hang if the site is slow
         response = requests.get(PRODUCT_URL, headers=headers, timeout=10)
-        soup = BeautifulSoup(response.text, "html.parser")
         
-        page_text = soup.get_text().lower()
+        # Convert to lowercase to make the check 'case-insensitive'
+        content = response.text.lower()
 
-        # Logic: If these words are NOT there, it might be in stock
-        if "sold out" in page_text or "out of stock" in page_text:
-            return False
-        return True
+        # TARGET: Only trigger if the specific purchase button text appears
+        if "get account now" in content:
+            print("🚨 ALERT: 'Get account now' button detected!")
+            return True
+        
+        # LOGGING: Helps you see in Railway that it's working
+        if "out of stock" in content:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Status: Out of Stock")
+        else:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Status: Unknown (Page changed?)")
+            
+        return False
 
     except Exception as e:
         print(f"Error checking site: {e}")
@@ -29,27 +39,29 @@ def check_stock():
 
 def send_webhook(message):
     if not WEBHOOK_URL:
-        print("ERROR: WEBHOOK_URL variable is missing in Railway!")
+        print("ERROR: No WEBHOOK_URL found in Railway Variables!")
         return
         
     data = {"content": message}
     try:
         requests.post(WEBHOOK_URL, json=data)
-        print("Notification sent to Discord!")
+        print("Discord notification sent.")
     except Exception as e:
-        print(f"Webhook error: {e}")
+        print(f"Webhook failed: {e}")
 
 if __name__ == "__main__":
-    print("Bot is starting up...")
+    print("--- Stock Bot Starting ---")
     
-    # TEST RUN: This sends a message immediately so you know it works
-    send_webhook("🚀 Stock Checker is now LIVE on Railway!")
+    # Startup Confirmation
+    send_webhook(f"🚀 **Monitor Active**\nTarget: {PRODUCT_URL}\nCheck Rate: {CHECK_INTERVAL}s")
 
     while True:
         if check_stock():
-            send_webhook(f"🟢 ITEM MIGHT BE IN STOCK!\n{PRODUCT_URL}")
-            # Optional: remove 'break' if you want it to keep messaging you
+            # Bold alert with a direct link for quick clicking
+            send_webhook(f"🚨 **PRODUCT AVAILABLE!** 🚨\n'Get account now' button is visible!\nLink: {PRODUCT_URL}")
+            
+            # The bot stops here so it doesn't spam you. 
+            # Delete the 'break' below if you want it to keep alerting every 30s.
             break 
 
-        print("Checked: Still out of stock...")
         time.sleep(CHECK_INTERVAL)
